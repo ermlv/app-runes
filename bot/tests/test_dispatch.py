@@ -27,16 +27,33 @@ class Recorder:
     def __init__(self, monkeypatch):
         self.sent = []
         self.answered = []
+        self.markups = []  # reply_markup каждого отправленного сообщения
 
         async def fake_request(b, method, timeout=None):
             name = type(method).__name__
             if name == "SendMessage":
                 self.sent.append(method.text)
+                self.markups.append(getattr(method, "reply_markup", None))
             elif name == "AnswerCallbackQuery":
                 self.answered.append(getattr(method, "text", None))
             return None
 
         monkeypatch.setattr(bot_module.bot.session, "make_request", fake_request)
+
+
+def _markup_callbacks(markup):
+    if markup is None:
+        return []
+    return [btn.callback_data for row in markup.inline_keyboard for btn in row]
+
+
+def _fresh_db(tmp_path, monkeypatch):
+    """Чистая БД на тест: handlers читают config.DB_PATH при каждом соединении."""
+    import config
+    import db
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dispatch.db")
+    db.init_db()
+    return db
 
 
 def _key():
@@ -168,3 +185,118 @@ def test_stale_pull_answers_устарела(monkeypatch):
     assert rec.answered == ["Кнопка устарела"], rec.answered
     assert rec.sent and "меню" in rec.sent[0].lower(), rec.sent
     assert state is None, "старая кнопка не должна начинать новый расклад"
+
+
+# ------------------------------------------- Task 4: гейт лимита и подсказка
+def _fill_quota(db, n_draws, premium_until=0):
+    for _ in range(n_draws):
+        db.add_draw(1, "[]")
+    if premium_until:
+        db.set_premium_until(1, premium_until)
+
+
+def test_menu_draw_blocked_when_limit_reached(monkeypatch, tmp_path):
+    rec = Recorder(monkeypatch)
+    db = _fresh_db(tmp_path, monkeypatch)
+    _fill_quota(db, 2)
+
+    async def scenario():
+        ctx = _ctx()
+        await ctx.clear()
+        await _feed_text("🔮 Расклад Три Норны")
+        return await ctx.get_state()
+
+    state = asyncio.run(scenario())
+    assert rec.sent, "нет ответа при исчерпанном лимите"
+    assert "2 расклада" in rec.sent[0], rec.sent[0]
+    assert any("pay:stars" in _markup_callbacks(m) for m in rec.markups), \
+        "нет кнопки покупки в лимит-сообщении"
+    assert not any("Вытяните" in s for s in rec.sent), \
+        "расклад стартовал при исчерпанном лимите"
+    assert state is None, "состояние расклада не должно устанавливаться"
+
+
+def test_again_blocked_when_limit_reached(monkeypatch, tmp_path):
+    """Review Focus №3: «Всё равно гадать» после Фреи не должен обходить лимит."""
+    rec = Recorder(monkeypatch)
+    db = _fresh_db(tmp_path, monkeypatch)
+    _fill_quota(db, 2)
+
+    async def scenario():
+        ctx = _ctx()
+        await ctx.clear()
+        await ctx.set_state(bot_module.DrawSG.drawing)  # расклад «идёт»
+        await _feed_callback("draw:again")
+
+    asyncio.run(scenario())
+    assert any("2 расклада" in s for s in rec.sent), rec.sent
+    assert not any("Вытяните" in s for s in rec.sent), \
+        "draw:again обошёл лимит"
+
+
+def test_menu_draw_starts_when_premium(monkeypatch, tmp_path):
+    rec = Recorder(monkeypatch)
+    db = _fresh_db(tmp_path, monkeypatch)
+    import time as _time
+    _fill_quota(db, 2, premium_until=int(_time.time()) + 1000)
+
+    async def scenario():
+        ctx = _ctx()
+        await ctx.clear()
+        await _feed_text("🔮 Расклад Три Норны")
+        return await ctx.get_state()
+
+    state = asyncio.run(scenario())
+    assert rec.sent and "Вытяните" in rec.sent[0], rec.sent
+    assert state == bot_module.DrawSG.drawing.state
+
+
+def test_menu_draw_starts_when_quota_left(monkeypatch, tmp_path):
+    rec = Recorder(monkeypatch)
+    db = _fresh_db(tmp_path, monkeypatch)
+    _fill_quota(db, 1)
+
+    async def scenario():
+        ctx = _ctx()
+        await ctx.clear()
+        await _feed_text("🔮 Расклад Три Норны")
+        return await ctx.get_state()
+
+    state = asyncio.run(scenario())
+    assert rec.sent and "Вытяните" in rec.sent[0], rec.sent
+    assert state == bot_module.DrawSG.drawing.state
+
+
+def test_after_draw_hint_on_completion(monkeypatch, tmp_path):
+    """После завершения расклада — подсказка об остатке (0 draws в БД,
+    в state вытянуты2 → после завершения1 → «Осталось1 расклад»)."""
+    import time as _time
+
+    import runes as runes_mod
+
+    rec = Recorder(monkeypatch)
+    _fresh_db(tmp_path, monkeypatch)
+
+    async def _noop(*args, **kwargs):
+        return None
+    monkeypatch.setattr(bot_module.asyncio, "sleep", _noop)
+
+    async def scenario():
+        ctx = _ctx()
+        await ctx.clear()
+        await ctx.set_state(bot_module.DrawSG.drawing)
+        await ctx.update_data(
+            drawn=[{"rune": runes_mod.RUNES[0], "position": "past",
+                    "is_reversed": False},
+                   {"rune": runes_mod.RUNES[1], "position": "present",
+                    "is_reversed": False}],
+            pos="future",
+        )
+        await _feed_callback("draw:pull")
+        return await ctx.get_state()
+
+    state = asyncio.run(scenario())
+    hints = [s for s in rec.sent if "Осталось" in s]
+    assert hints, f"нет подсказки об остатке; sent={rec.sent}"
+    assert "1 расклад" in hints[-1] and "раскладов" not in hints[-1], hints[-1]
+    assert state is None, "состояние должно очиститься после итога"

@@ -7,6 +7,7 @@
 import asyncio
 import json
 import logging
+import time
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -19,6 +20,7 @@ from aiogram.types import CallbackQuery, Message
 import config as C
 import db
 import kb
+import limits
 import runes
 import texts
 
@@ -47,8 +49,19 @@ class DrawSG(StatesGroup):
 
 
 # ------------------------------------------------------------- helpers
-async def start_draw(target: Message, state: FSMContext) -> None:
-    """Начать расклад с нуля: позиция past, ещё ничего не вытянуто."""
+async def start_draw(target: Message, state: FSMContext, user_id: int) -> None:
+    """Начать расклад с нуля: позиция past, ещё ничего не вытянуто.
+
+    user_id — КЛИКАТЕЛЬ: у сообщения cq.message.from_user это бот, а не
+    пользователь. Гейт лимита живёт здесь же — любой старт расклада
+    (меню или «Всё равно гадать») обязан его проходить.
+    """
+    now = int(time.time())
+    premium = db.get_premium_until(user_id)
+    used = db.count_recent_draws(user_id, now - limits.WEEK_SECONDS)
+    if not limits.can_draw(used, premium, now):
+        await target.answer(texts.LIMIT_REACHED, reply_markup=kb.BUY_PREMIUM)
+        return
     await state.set_state(DrawSG.drawing)
     await state.update_data(drawn=[], pos="past")
     await target.answer(texts.draw_prompt("past"),
@@ -69,7 +82,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
 # (иначе пользователь видит кнопку без реакции — выглядит как поломка).
 @router.message(F.text == "🔮 Расклад Три Норны")
 async def menu_draw(message: Message, state: FSMContext) -> None:
-    await start_draw(message, state)
+    await start_draw(message, state, message.from_user.id)
 
 
 @router.message(F.text == "ℹ️ Что за расклад")
@@ -105,6 +118,13 @@ async def draw_pull(cq: CallbackQuery, state: FSMContext) -> None:
         await cq.message.answer(texts.result_message(drawn),
                                 reply_markup=kb.RESULT)
         await state.clear()
+        # Подсказка об остатке — только без активного премиума
+        if not limits.is_premium(db.get_premium_until(cq.from_user.id),
+                                 int(time.time())):
+            used = db.count_recent_draws(
+                cq.from_user.id, int(time.time()) - limits.WEEK_SECONDS)
+            await cq.message.answer(
+                texts.after_draw_hint(limits.remaining(used)))
         return
 
     nxt = ORDER[ORDER.index(pos) + 1]
@@ -123,7 +143,7 @@ async def draw_new(cq: CallbackQuery) -> None:
 @router.callback_query(F.data == "draw:again")
 async def draw_again(cq: CallbackQuery, state: FSMContext) -> None:
     await cq.answer()
-    await start_draw(cq.message, state)
+    await start_draw(cq.message, state, cq.from_user.id)
 
 
 @router.callback_query(F.data == "draw:cancel")
