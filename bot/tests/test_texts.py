@@ -50,3 +50,40 @@ def test_draw_prompt_per_position():
     assert "первую" in texts.draw_prompt("past")
     assert "вторую" in texts.draw_prompt("present")
     assert "третью" in texts.draw_prompt("future")
+
+
+# --- Task 3: лимиты и Stars ----------------------------------------------
+
+def test_limit_reached_message():
+    import texts
+    assert "2 расклада" in texts.LIMIT_REACHED
+    assert "30 звёзд" in texts.LIMIT_REACHED
+
+
+def test_premium_activated_contains_date():
+    import datetime
+    import time
+
+    import texts
+    until = int(time.time()) + 7 * 86400
+    msg = texts.premium_activated(until)
+    assert "безлимит" in msg.lower()
+    expect_date = datetime.datetime.fromtimestamp(until).strftime("%d.%m")
+    assert expect_date in msg
+
+
+def test_after_draw_hint_pluralization():
+    import texts
+
+    h = texts.after_draw_hint(1)
+    assert "1 расклад" in h and "расклада" not in h and "раскладов" not in h
+
+    h = texts.after_draw_hint(2)
+    assert "2 расклада" in h and "раскладов" not in h
+
+    assert "5 раскладов" in texts.after_draw_hint(5)
+
+    h = texts.after_draw_hint(21)
+    assert "21 расклад" in h and "раскладов" not in h
+
+    assert "0 раскладов" in texts.after_draw_hint(0)

@@ -27,3 +27,9 @@ def test_result_callbacks():
 def test_freya_callbacks():
     import kb
     assert _inline_callbacks(kb.FREYA) == ["draw:cancel", "draw:again"]
+
+
+def test_buy_premium_callback():
+    import kb
+    assert _inline_callbacks(kb.BUY_PREMIUM) == ["pay:stars"]
+    assert "30 звёзд" in kb.BUY_PREMIUM.inline_keyboard[0][0].text
