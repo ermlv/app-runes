@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "export:runes": "node scripts/export-runes.mjs"
+    "export:runes": "node scripts/export-runes.mjs",
+    "deploy:bot": "node scripts/deploy-bot.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",
