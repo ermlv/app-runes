@@ -87,7 +87,18 @@ def test_set_get_premium_until(tmp_path, monkeypatch):
     assert db.get_premium_until(999) == 0  # нет строки
 
 
-def test_add_purchase_deduplicates(tmp_path, monkeypatch):
+def test_apply_purchase_deduplicates(tmp_path, monkeypatch):
+    """Одна операция = и покупка, и премиум (атомарный контракт) + дедуп."""
+    import time as _time
+
     db = _ready(tmp_path, monkeypatch)
-    assert db.add_purchase("ch1", 1, 30) is True
-    assert db.add_purchase("ch1", 1, 30) is False  # тот же charge_id
+    now = int(_time.time())
+
+    until = db.apply_purchase("ch1", 1, 30, now)
+    assert until == now + 7 * 86400, until
+    assert db.get_premium_until(1) == until, "премиум не выдан той же операцией"
+    assert db.apply_purchase("ch1", 1, 30, now) is None, "дубль charge_id"
+    assert db.get_premium_until(1) == until, "дубль продлил премиум"
+    # вторая покупка (другой charge_id) продлевает от текущего срока
+    until2 = db.apply_purchase("ch2", 1, 30, until)
+    assert until2 == until + 7 * 86400, until2
