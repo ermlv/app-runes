@@ -15,7 +15,8 @@ from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import (CallbackQuery, LabeledPrice, Message,
+                           PreCheckoutQuery)
 
 import config as C
 import db
@@ -161,6 +162,46 @@ async def cb_menu(cq: CallbackQuery, state: FSMContext) -> None:
     await cq.message.answer("Главное меню 👇", reply_markup=kb.MENU)
 
 
+# ------------------------------------------------ покупка безлимита (Stars)
+@router.callback_query(F.data == "pay:stars")
+async def pay_stars(cq: CallbackQuery) -> None:
+    """Инвойс Telegram Stars:30⭐ → безлимит на неделю."""
+    await cq.answer()
+    await bot.send_invoice(
+        chat_id=cq.message.chat.id,
+        title=texts.PREMIUM_INVOICE_TITLE,
+        description=texts.PREMIUM_INVOICE_DESCRIPTION,
+        payload=str(cq.from_user.id),  # uid плывёт в payload, не в from
+        currency="XTR",
+        prices=[LabeledPrice(label=texts.PREMIUM_INVOICE_TITLE,
+                             amount=C.PREMIUM_STARS)],
+    )
+
+
+@router.pre_checkout_query()
+async def pre_checkout(pq: PreCheckoutQuery) -> None:
+    """Ответ обязателен за10 секунд, иначе Telegram отменит оплату."""
+    ok = pq.currency == "XTR" and pq.total_amount == C.PREMIUM_STARS
+    await bot.answer_pre_checkout_query(
+        pq.id, ok=ok,
+        error_message=None if ok else "Сумма изменилась — попробуйте ещё раз",
+    )
+
+
+@router.message(F.successful_payment)
+async def successful_payment(message: Message) -> None:
+    sp = message.successful_payment
+    user_id = int(sp.invoice_payload)
+    now = int(time.time())
+    if not db.add_purchase(sp.telegram_payment_charge_id, user_id,
+                           sp.total_amount):
+        await message.answer("Эта оплата уже активирована ✓")
+        return
+    until = limits.extend_premium(db.get_premium_until(user_id), now)
+    db.set_premium_until(user_id, until)
+    await message.answer(texts.premium_activated(until))
+
+
 # ------------------------------------------------------------- админ
 @router.message(Command("stats"))
 async def cmd_stats(message: Message) -> None:
@@ -189,7 +230,9 @@ async def any_text(message: Message) -> None:
 # ------------------------------------------------------------- main
 async def main() -> None:
     db.init_db()
-    await bot.delete_webhook(drop_pending_updates=True)  # polling, не webhook
+    # drop_pending_updates=False: pending successful_payment при рестарте
+    # нельзя выбрасывать — пользователь уже заплатил звёзды (см. дизайн).
+    await bot.delete_webhook(drop_pending_updates=False)
     # Один апдейт за раз: в draw_pull окно read→sleep(1.5)→write, при
     # параллельной обработке возможен повтор руны и порча FSM-состояния.
     await dp.start_polling(bot, tasks_concurrency_limit=1)
