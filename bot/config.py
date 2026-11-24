@@ -24,6 +24,9 @@ _load_dotenv(Path(__file__).resolve().parent / ".env")
 # --- Telegram -----------------------------------------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN") or "ВСТАВЬТЕ_ТОКЕН_ОТ_BOTFATHER"
 
+# Локальная подмена DNS для api.telegram.org (пусто = обычный резолвер).
+TG_API_IP = os.getenv("TG_API_IP", "")
+
 # Telegram ID владельца: команда /stats отвечает только ему.
 ADMIN_ID = int(os.getenv("ADMIN_ID", "3588541"))
 
