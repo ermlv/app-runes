@@ -328,3 +328,45 @@ def test_new_draw_sends_freya_photo(monkeypatch, tmp_path):
     # кнопки «Понятно, подожду» / «Всё равно гадать» обязаны остаться
     assert _markup_callbacks(rec.photos[0]["markup"]) == ["draw:cancel", "draw:again"], \
         rec.photos[0]["markup"]
+
+
+# --------------------------------------- картинки рун при раскрытии
+def test_reveal_sends_rune_photo(monkeypatch, tmp_path):
+    """Раскрытие руны уходит фото тайла с текстом в подписи."""
+    rec = Recorder(monkeypatch)
+    _fresh_db(tmp_path, monkeypatch)
+
+    async def _noop(*args, **kwargs):
+        return None
+    monkeypatch.setattr(bot_module.asyncio, "sleep", _noop)
+
+    async def scenario():
+        ctx = _ctx()
+        await ctx.clear()
+        await ctx.set_state(bot_module.DrawSG.drawing)
+        await ctx.update_data(drawn=[], pos="past")
+        await _feed_callback("draw:pull")
+
+    asyncio.run(scenario())
+    assert rec.photos, "раскрытие ушло без фото руны"
+    cap = rec.photos[0]["caption"] or ""
+    assert "Позиция" in cap or "позиция" in cap or "Прямая" in cap or "Перевёрнутая" in cap, cap
+    assert rec.photos[0]["has_photo"], "SendPhoto без файла"
+
+
+def test_rune_photo_rotation():
+    """Перевёрнутая руна — то же изображение, повёрнутое на180°."""
+    import io as _io
+
+    from PIL import Image
+
+    direct = bot_module.rune_photo(1, False).data
+    flipped = bot_module.rune_photo(1, True).data
+    assert direct != flipped, "перевёрнутая не отличается от прямой"
+
+    a = Image.open(_io.BytesIO(direct))
+    b = Image.open(_io.BytesIO(flipped))
+    assert a.size == b.size
+    # левый верхний угол прямого == правый нижний повёрнутого
+    assert a.getpixel((0, 0)) == b.getpixel((b.size[0] - 1, b.size[1] - 1)), \
+        "изображение не повёрнуто на180°"
