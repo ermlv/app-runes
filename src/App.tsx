@@ -1,5 +1,10 @@
 import { useState, useCallback, useEffect } from 'react';
 import { runes, Rune } from './data/runes';
+import freyaImg from './assets/freya-warning.jpg';
+
+// Тайл руны по id (порядок = id в runes.ts, файлы лежат в public/runes/)
+const runeImg = (id: number) =>
+  `${import.meta.env.BASE_URL}runes/rune-${String(id).padStart(2, '0')}.jpg`;
 
 type GamePhase = 'intro' | 'drawing' | 'result';
 type Position = 'past' | 'present' | 'future';
@@ -160,15 +165,15 @@ export default function App() {
             <h2 className="text-amber-300 text-xl font-semibold mb-4 text-center">Как работает гадание</h2>
             <div className="space-y-3 text-purple-100">
               <div className="flex items-start gap-3">
-                <span className="text-amber-400 font-bold text-lg rune-symbol">ᚠ</span>
+                <img src={runeImg(1)} alt="" className="inline-block w-5 h-5 rounded align-middle" />
                 <p><strong className="text-amber-200">Первая руна — Прошлое:</strong> отражает события и обстоятельства, которые привели к текущей ситуации. Показывает корни и причины.</p>
               </div>
               <div className="flex items-start gap-3">
-                <span className="text-amber-400 font-bold text-lg rune-symbol">ᚢ</span>
+                <img src={runeImg(2)} alt="" className="inline-block w-5 h-5 rounded align-middle" />
                 <p><strong className="text-amber-200">Вторая руна — Настоящее:</strong> показывает текущее состояние дел, энергию момента и силы, действующие сейчас.</p>
               </div>
               <div className="flex items-start gap-3">
-                <span className="text-amber-400 font-bold text-lg rune-symbol">ᚦ</span>
+                <img src={runeImg(3)} alt="" className="inline-block w-5 h-5 rounded align-middle" />
                 <p><strong className="text-amber-200">Третья руна — Будущее:</strong> указывает на то, к чему ведёт текущий путь, если ничего не менять.</p>
               </div>
             </div>
@@ -229,9 +234,7 @@ export default function App() {
                       ? 'border-purple-400 bg-purple-900/40 animate-pulse' 
                       : 'border-purple-700/50 bg-purple-900/20'}`}>
                   {idx < drawnRunes.length ? (
-                    <span className="text-2xl rune-symbol text-amber-300">
-                      {drawnRunes[idx].rune.symbol}
-                    </span>
+                    <img src={runeImg(drawnRunes[idx].rune.id)} alt="" className="w-9 h-9 rounded-md object-cover" />
                   ) : (
                     <span className="text-purple-400 text-lg">{idx + 1}</span>
                   )}
@@ -264,9 +267,7 @@ export default function App() {
                     : 'border-amber-400/70 bg-gradient-to-b from-amber-900/40 to-gray-900/80 shadow-amber-400/30'}
                   ${currentDrawn.isReversed ? 'rotate-180' : ''}
                 `}>
-                  <span className="text-6xl md:text-7xl rune-symbol text-amber-200">
-                    {currentDrawn.rune.symbol}
-                  </span>
+                  <img src={runeImg(currentDrawn.rune.id)} alt="" className="w-28 h-28 md:w-36 md:h-36 rounded-xl object-cover" />
                 </div>
                 <p className="text-amber-200 text-xl font-bold mt-4 font-serif">
                   {currentDrawn.rune.nameRu}
@@ -375,7 +376,7 @@ export default function App() {
                       : 'border-amber-400/70 bg-amber-900/20 shadow-lg shadow-amber-400/20'}
                     ${sel.isReversed ? 'rotate-180' : ''}
                   `}>
-                    <span className="text-5xl rune-symbol text-amber-200">{sel.rune.symbol}</span>
+                    <img src={runeImg(sel.rune.id)} alt="" className="w-16 h-16 rounded-lg object-cover" />
                   </div>
                 </div>
 
@@ -462,7 +463,7 @@ export default function App() {
 
             {/* Goddess symbol */}
             <div className="text-center mb-4">
-              <div className="text-6xl mb-2 animate-pulse">🌙</div>
+              <img src={freyaImg} alt="Фрейя" className="w-40 md:w-48 mx-auto mb-3 rounded-2xl border border-amber-500/30 shadow-lg shadow-amber-900/40" />
               <div className="text-3xl rune-symbol text-amber-400/60 mb-2">ᚠ ᚢ ᚦ</div>
               <h2 className="text-2xl md:text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-200 font-serif">
                 Предостережение Фрейи
