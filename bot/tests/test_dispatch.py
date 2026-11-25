@@ -28,6 +28,7 @@ class Recorder:
         self.sent = []
         self.answered = []
         self.markups = []  # reply_markup каждого отправленного сообщения
+        self.photos = []   # SendPhoto: {caption, has_photo}
 
         async def fake_request(b, method, timeout=None):
             name = type(method).__name__
@@ -36,6 +37,12 @@ class Recorder:
                 self.markups.append(getattr(method, "reply_markup", None))
             elif name == "AnswerCallbackQuery":
                 self.answered.append(getattr(method, "text", None))
+            elif name == "SendPhoto":
+                self.photos.append({
+                    "caption": method.caption,
+                    "has_photo": method.photo is not None,
+                    "markup": getattr(method, "reply_markup", None),
+                })
             return None
 
         monkeypatch.setattr(bot_module.bot.session, "make_request", fake_request)
@@ -300,3 +307,24 @@ def test_after_draw_hint_on_completion(monkeypatch, tmp_path):
     assert hints, f"нет подсказки об остатке; sent={rec.sent}"
     assert "1 расклад" in hints[-1] and "раскладов" not in hints[-1], hints[-1]
     assert state is None, "состояние должно очиститься после итога"
+
+
+# ------------------------------------- картинка «Предостережение Фрейи»
+def test_new_draw_sends_freya_photo(monkeypatch, tmp_path):
+    """«✦ Новое гадание ✦» → Фрейя уходит картинкой с текстом в подписи."""
+    rec = Recorder(monkeypatch)
+    _fresh_db(tmp_path, monkeypatch)
+
+    async def scenario():
+        await _ctx().clear()
+        await _feed_callback("draw:new")
+
+    asyncio.run(scenario())
+    assert rec.photos, "предупреждение Фреи ушло без картинки"
+    cap = rec.photos[0]["caption"] or ""
+    assert rec.photos[0]["has_photo"], "SendPhoto без файла"
+    assert "Предостережение Фрейи" in cap, cap[:80]
+    assert "Остановись" in cap, cap[:80]
+    # кнопки «Понятно, подожду» / «Всё равно гадать» обязаны остаться
+    assert _markup_callbacks(rec.photos[0]["markup"]) == ["draw:cancel", "draw:again"], \
+        rec.photos[0]["markup"]
